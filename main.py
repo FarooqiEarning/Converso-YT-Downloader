@@ -1,12 +1,10 @@
 import os
 import yt_dlp
-import sys
 import re
 import requests
-import json
 from flask import Flask, request, send_from_directory, jsonify
 from datetime import datetime
-from urllib.parse import unquote, urlparse, parse_qs
+from urllib.parse import unquote
 
 app = Flask(__name__)
 DOWNLOAD_DIR = "downloads"

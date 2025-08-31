@@ -10,6 +10,11 @@ app = Flask(__name__)
 DOWNLOAD_DIR = "downloads"
 os.makedirs(DOWNLOAD_DIR, exist_ok=True)
 
+# ---------- COOKIES ----------
+# Path for browser-exported cookies
+COOKIES_FILE = os.path.join(os.path.dirname(__file__), "cookies.txt")
+USE_COOKIES = os.path.exists(COOKIES_FILE)
+
 
 # ---------- PROGRESS HOOKS ----------
 def ydl_progress(d):
@@ -41,7 +46,6 @@ def extract_youtube_id(url):
 def get_video_info_api(video_id):
     """Try to get video info using YouTube's internal API"""
     try:
-        # YouTube's internal API endpoint (used by the website)
         api_url = f"https://www.youtube.com/youtubei/v1/player"
         
         headers = {
@@ -75,7 +79,6 @@ def get_video_info_api(video_id):
 def select_best_video(formats):
     vids = [f for f in formats if f.get('vcodec') not in (None, 'none') and f.get('acodec') == 'none']
     if not vids:
-        # Fallback: any format with video
         vids = [f for f in formats if f.get('vcodec') not in (None, 'none')]
     
     codec_order = ['av01', 'vp9', 'avc1']
@@ -89,7 +92,6 @@ def select_best_video(formats):
 def select_best_audio(formats):
     auds = [f for f in formats if f.get('acodec') not in (None, 'none') and f.get('abr') is not None]
     if not auds:
-        # Fallback: any format with audio
         auds = [f for f in formats if f.get('acodec') not in (None, 'none')]
     if not auds:
         return None
@@ -100,7 +102,6 @@ def select_best_audio(formats):
 def download_best(url):
     print(f"\n[+] Starting download: {url}")
     
-    # Strategy 1: Try yt-dlp with minimal, aggressive bypass options
     print("[*] Trying yt-dlp with bypass options...")
     minimal_opts = {
         'quiet': True,
@@ -127,6 +128,11 @@ def download_best(url):
             }
         }
     }
+
+    # 👇 Add cookies if available
+    if USE_COOKIES:
+        minimal_opts['cookiefile'] = COOKIES_FILE
+        print(f"[*] Using cookies from {COOKIES_FILE}")
     
     try:
         with yt_dlp.YoutubeDL(minimal_opts) as ydl:
@@ -134,24 +140,19 @@ def download_best(url):
             print("[✓] yt-dlp bypass successful!")
             
             formats = info_dict.get('formats', [])
-            
-            # Look for combined formats first (easier)
             combined_formats = [f for f in formats if 
                               f.get('vcodec') not in (None, 'none') and 
                               f.get('acodec') not in (None, 'none')]
             
             if combined_formats:
-                # Use best combined format
                 best_format = max(combined_formats, key=lambda f: (f.get('height', 0), f.get('tbr') or 0))
                 format_selector = best_format['format_id']
                 print(f"    Using combined format: {best_format.get('height')}p | {best_format.get('vcodec')} + {best_format.get('acodec')}")
             else:
-                # Separate video+audio
                 v = select_best_video(formats)
                 a = select_best_audio(formats)
                 
                 if not v:
-                    # Just use best available format
                     best_available = max(formats, key=lambda f: f.get('quality', 0)) if formats else None
                     if best_available:
                         format_selector = best_available['format_id']
@@ -160,16 +161,13 @@ def download_best(url):
                         print("[x] No formats available")
                         return None, None
                 elif not a:
-                    # Video only
                     format_selector = v['format_id']
                     print(f"    Using video-only format: {v.get('height')}p | {v.get('vcodec')}")
                 else:
-                    # Video + Audio
                     format_selector = f"{v['format_id']}+{a['format_id']}"
                     print(f"    Selected video: {v.get('height')}p | {v.get('vcodec')}")
                     print(f"    Selected audio: {a.get('acodec')} | {a.get('abr')} kbps")
 
-            # Download
             timestamp = datetime.now().strftime("%Y-%m-%d_%H-%M-%S")
             final_file = f"{timestamp}.mp4"
             final_path = os.path.join(DOWNLOAD_DIR, final_file)
@@ -193,7 +191,6 @@ def download_best(url):
     except Exception as e:
         print(f"[!] yt-dlp failed: {str(e)[:100]}...")
 
-    # Strategy 2: If yt-dlp completely fails, return error with helpful message
     print("[x] All methods failed!")
     print("[!] YouTube has blocked this server's IP address.")
     print("[!] Possible solutions:")
@@ -234,11 +231,9 @@ def index():
 def download_route(yt_url):
     yt_url = unquote(yt_url)
     
-    # Reconstruct full URL including query string
     if request.query_string:
         yt_url += '?' + request.query_string.decode('utf-8')
     
-    # Validate that it's a YouTube URL
     if not any(domain in yt_url.lower() for domain in ['youtube.com', 'youtu.be']):
         return jsonify({
             "error": "Invalid request",
@@ -251,7 +246,6 @@ def download_route(yt_url):
             ]
         }), 400
     
-    # Extract video ID
     video_id = extract_youtube_id(yt_url)
     if not video_id:
         return jsonify({
@@ -259,7 +253,6 @@ def download_route(yt_url):
             "url_received": yt_url
         }), 400
     
-    # Reconstruct clean YouTube URL
     clean_url = f"https://www.youtube.com/watch?v={video_id}"
     
     try:
@@ -309,6 +302,5 @@ def download_route(yt_url):
 
 
 if __name__ == "__main__":
-    import os
-    port = int(os.environ.get("PORT", 5000))  # Railway gives a dynamic port
+    port = int(os.environ.get("PORT", 5000))
     app.run(host="0.0.0.0", port=port, debug=False)

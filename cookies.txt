@@ -1,3 +1,7 @@
+# Netscape HTTP Cookie File
+# http://curl.haxx.se/rfc/cookie_spec.html
+# This is a generated file!  Do not edit.
+
 .youtube.com	TRUE	/	TRUE	1783079772	LOGIN_INFO	AFmmF2swRQIhAOjF3XybNkyRNiuVjnkKhCHkL-GkwuldnU8pRK0i7qftAiApL4_gKkZBd5h9U6ZS3KLb3sTcGcT3QlrEO7mm8QiAvw:QUQ3MjNmeVBDV1c0eFZEVmhrMERMMFRwMGNRVHpMdHNtZWJTMG02dFdkcEpYb19pNUoyeURCQkJ4V1NEdDh4Y3pyeXEySzl1eHJzTjRnY2I0OFhiVm1oSXBFR3V0RFJIeU5vcm5zSDRfZUhGUEg4V0h2OUh1Zm02bWNDUzhkUW5sSU9XeFdYTXhEZEZSMWV3STVPdFd3eU1GczJvQ1dUWXBB
 .youtube.com	TRUE	/	FALSE	1759254568	_gcl_au	1.1.2104150433.1751478569
 .youtube.com	TRUE	/	TRUE	1791216133	PREF	tz=Asia.Karachi&f6=40000000&f5=30000&f7=150&repeat=NONE&autoplay=true

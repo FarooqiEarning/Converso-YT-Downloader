@@ -4,7 +4,7 @@ import sys
 import re
 from flask import Flask, request, send_from_directory, jsonify
 from datetime import datetime
-from urllib.parse import unquote, urlparse, parse_qs
+from urllib.parse import unquote
 
 app = Flask(__name__)
 DOWNLOAD_DIR = "downloads"
@@ -20,12 +20,6 @@ def ydl_progress(d):
 
 
 # ---------- FORMAT SELECTION ----------
-def list_formats(url):
-    with yt_dlp.YoutubeDL({'quiet': True}) as ydl:
-        info = ydl.extract_info(url, download=False)
-    return info.get('formats', [])
-
-
 def select_best_video(formats):
     vids = [f for f in formats if f.get('vcodec') not in (None, 'none') and f.get('acodec') == 'none']
     codec_order = ['av01', 'vp9', 'avc1']
@@ -46,7 +40,6 @@ def select_best_audio(formats):
 # ---------- YOUTUBE ID EXTRACTION ----------
 def extract_youtube_id(url):
     """Extract YouTube video ID from various URL formats including Shorts"""
-    # YouTube video ID pattern (11 characters)
     patterns = [
         r'(?:youtube\.com\/watch\?v=|youtu\.be\/|youtube\.com\/embed\/)([a-zA-Z0-9_-]{11})',
         r'youtube\.com\/.*[?&]v=([a-zA-Z0-9_-]{11})',
@@ -62,42 +55,109 @@ def extract_youtube_id(url):
     return None
 
 
-# ---------- DOWNLOAD ----------
+# ---------- DOWNLOAD WITH MULTIPLE BYPASS STRATEGIES ----------
 def download_best(url):
     print(f"\n[+] Starting download: {url}")
 
-    # Extract full metadata with comprehensive options to avoid 403 errors
-    ydl_opts_info = {
-        'quiet': True,
-        'no_warnings': True,
-        # User agent and headers
-        'user_agent': 'Mozilla/5.0 (Windows NT 10.0; Win64; x64) AppleWebKit/537.36 (KHTML, like Gecko) Chrome/120.0.0.0 Safari/537.36',
-        'referer': 'https://www.youtube.com/',
-        'headers': {
-            'Accept': 'text/html,application/xhtml+xml,application/xml;q=0.9,*/*;q=0.8',
-            'Accept-Language': 'en-us,en;q=0.5',
-            'Sec-Fetch-Mode': 'navigate',
+    # Multiple strategies to bypass YouTube's bot detection on cloud platforms
+    strategies = [
+        {
+            'name': 'Android TV Client',
+            'opts': {
+                'quiet': True,
+                'no_warnings': True,
+                'user_agent': 'com.google.android.youtube.tv/2.12.08 (Linux; U; Android 9; SM-T720)',
+                'extractor_retries': 3,
+                'fragment_retries': 3,
+                'cachedir': False,
+                'extractor_args': {
+                    'youtube': {
+                        'player_client': ['android_tv'],
+                        'player_skip': ['configs', 'webpage'],
+                    }
+                }
+            }
         },
-        # Retry options
-        'extractor_retries': 5,
-        'fragment_retries': 5,
-        'retry_sleep': 'linear:1:5:1',
-        # Network options
-        'socket_timeout': 30,
-        'http_chunk_size': 10485760,  # 10MB chunks
-        # YouTube specific
-        'extract_flat': False,
-        'writesubtitles': False,
-        'writeinfojson': False,
-        # Cache and update
-        'cachedir': False,  # Disable cache to avoid issues
-    }
+        {
+            'name': 'iOS Client',
+            'opts': {
+                'quiet': True,
+                'no_warnings': True,
+                'user_agent': 'com.google.ios.youtube/19.45.4 (iPhone16,2; U; CPU iOS 17_5_1 like Mac OS X)',
+                'extractor_retries': 3,
+                'fragment_retries': 3,
+                'cachedir': False,
+                'extractor_args': {
+                    'youtube': {
+                        'player_client': ['ios'],
+                        'player_skip': ['configs', 'webpage'],
+                    }
+                }
+            }
+        },
+        {
+            'name': 'Android Creator',
+            'opts': {
+                'quiet': True,
+                'no_warnings': True,
+                'user_agent': 'com.google.android.apps.youtube.creator/22.43.101 (Linux; U; Android 11; SM-G998B)',
+                'extractor_retries': 3,
+                'fragment_retries': 3,
+                'cachedir': False,
+                'extractor_args': {
+                    'youtube': {
+                        'player_client': ['android_creator'],
+                        'player_skip': ['configs'],
+                    }
+                }
+            }
+        },
+        {
+            'name': 'Web with bypass',
+            'opts': {
+                'quiet': True,
+                'no_warnings': True,
+                'user_agent': 'Mozilla/5.0 (Windows NT 10.0; Win64; x64) AppleWebKit/537.36',
+                'referer': 'https://www.youtube.com/',
+                'headers': {
+                    'Accept': '*/*',
+                    'Accept-Language': 'en-US,en;q=0.9',
+                    'Sec-Fetch-Dest': 'empty',
+                    'Sec-Fetch-Mode': 'cors',
+                    'Sec-Fetch-Site': 'same-origin',
+                },
+                'extractor_retries': 2,
+                'fragment_retries': 2,
+                'cachedir': False,
+                'extractor_args': {
+                    'youtube': {
+                        'player_client': ['web'],
+                        'player_skip': ['configs', 'webpage'],
+                        'skip': ['hls'],
+                    }
+                }
+            }
+        }
+    ]
     
-    try:
-        with yt_dlp.YoutubeDL(ydl_opts_info) as ydl:
-            info_dict = ydl.extract_info(url, download=False)
-    except Exception as e:
-        print(f"[!] Info extraction failed: {str(e)}")
+    info_dict = None
+    successful_strategy = None
+    
+    # Try each strategy until one works
+    for strategy in strategies:
+        print(f"[*] Trying {strategy['name']} client...")
+        try:
+            with yt_dlp.YoutubeDL(strategy['opts']) as ydl:
+                info_dict = ydl.extract_info(url, download=False)
+                successful_strategy = strategy
+                print(f"[✓] Success with {strategy['name']} client!")
+                break
+        except Exception as e:
+            print(f"[!] {strategy['name']} failed: {str(e)[:100]}...")
+            continue
+    
+    if not info_dict:
+        print("[x] All extraction strategies failed!")
         return None, None
 
     formats = info_dict.get('formats', [])
@@ -115,31 +175,19 @@ def download_best(url):
     final_file = f"{timestamp}.mp4"
     final_path = os.path.join(DOWNLOAD_DIR, final_file)
 
-    ydl_opts = {
+    # Use the successful strategy for download
+    download_opts = successful_strategy['opts'].copy()
+    download_opts.update({
         'format': f"{v['format_id']}+{a['format_id']}",
         'merge_output_format': 'mp4',
         'outtmpl': final_path,
         'progress_hooks': [ydl_progress],
-        # Same headers and options as info extraction
-        'user_agent': 'Mozilla/5.0 (Windows NT 10.0; Win64; x64) AppleWebKit/537.36 (KHTML, like Gecko) Chrome/120.0.0.0 Safari/537.36',
-        'referer': 'https://www.youtube.com/',
-        'headers': {
-            'Accept': 'text/html,application/xhtml+xml,application/xml;q=0.9,*/*;q=0.8',
-            'Accept-Language': 'en-us,en;q=0.5',
-            'Sec-Fetch-Mode': 'navigate',
-        },
-        'extractor_retries': 5,
-        'fragment_retries': 5,
-        'retry_sleep': 'linear:1:5:1',
-        'socket_timeout': 30,
-        'http_chunk_size': 10485760,
-        'cachedir': False,  # Disable cache
         'quiet': False,  # Show yt-dlp's built-in progress
         'no_warnings': False,
-    }
+    })
 
     try:
-        with yt_dlp.YoutubeDL(ydl_opts) as ydl:
+        with yt_dlp.YoutubeDL(download_opts) as ydl:
             ydl.download([url])
     except Exception as e:
         print(f"[!] Download failed: {str(e)}")
@@ -174,10 +222,10 @@ def download_route(yt_url):
             "error": "Invalid request",
             "usage": "Paste your YouTube video URL after the server address",
             "examples": [
-                "http://127.0.0.1:5000/https://www.youtube.com/watch?v=dQw4w9WgXcQ",
-                "http://127.0.0.1:5000/https://youtu.be/dQw4w9WgXcQ",
-                "http://127.0.0.1:5000/https://www.youtube.com/shorts/VIDEO_ID",
-                "http://127.0.0.1:5000/https://www.youtube.com/live/VIDEO_ID"
+                "https://ytd.stylefort.store/https://www.youtube.com/watch?v=dQw4w9WgXcQ",
+                "https://ytd.stylefort.store/https://youtu.be/dQw4w9WgXcQ",
+                "https://ytd.stylefort.store/https://www.youtube.com/shorts/VIDEO_ID",
+                "https://ytd.stylefort.store/https://www.youtube.com/live/VIDEO_ID"
             ]
         }), 400
     

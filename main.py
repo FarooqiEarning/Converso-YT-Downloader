@@ -59,83 +59,52 @@ def extract_youtube_id(url):
 def download_best(url):
     print(f"\n[+] Starting download: {url}")
 
-    # Multiple strategies to bypass YouTube's bot detection on cloud platforms
+    # Alternative strategies for cloud deployment
     strategies = [
         {
-            'name': 'Android TV Client',
+            'name': 'Minimal Web Client',
             'opts': {
                 'quiet': True,
                 'no_warnings': True,
-                'user_agent': 'com.google.android.youtube.tv/2.12.08 (Linux; U; Android 9; SM-T720)',
-                'extractor_retries': 3,
-                'fragment_retries': 3,
+                'user_agent': 'Mozilla/5.0 (Windows NT 10.0; Win64; x64) AppleWebKit/537.36 (KHTML, like Gecko) Chrome/120.0.0.0 Safari/537.36',
+                'extractor_retries': 1,
+                'fragment_retries': 1,
                 'cachedir': False,
-                'extractor_args': {
-                    'youtube': {
-                        'player_client': ['android_tv'],
-                        'player_skip': ['configs', 'webpage'],
-                    }
-                }
-            }
-        },
-        {
-            'name': 'iOS Client',
-            'opts': {
-                'quiet': True,
-                'no_warnings': True,
-                'user_agent': 'com.google.ios.youtube/19.45.4 (iPhone16,2; U; CPU iOS 17_5_1 like Mac OS X)',
-                'extractor_retries': 3,
-                'fragment_retries': 3,
-                'cachedir': False,
-                'extractor_args': {
-                    'youtube': {
-                        'player_client': ['ios'],
-                        'player_skip': ['configs', 'webpage'],
-                    }
-                }
-            }
-        },
-        {
-            'name': 'Android Creator',
-            'opts': {
-                'quiet': True,
-                'no_warnings': True,
-                'user_agent': 'com.google.android.apps.youtube.creator/22.43.101 (Linux; U; Android 11; SM-G998B)',
-                'extractor_retries': 3,
-                'fragment_retries': 3,
-                'cachedir': False,
-                'extractor_args': {
-                    'youtube': {
-                        'player_client': ['android_creator'],
-                        'player_skip': ['configs'],
-                    }
-                }
-            }
-        },
-        {
-            'name': 'Web with bypass',
-            'opts': {
-                'quiet': True,
-                'no_warnings': True,
-                'user_agent': 'Mozilla/5.0 (Windows NT 10.0; Win64; x64) AppleWebKit/537.36',
-                'referer': 'https://www.youtube.com/',
-                'headers': {
-                    'Accept': '*/*',
-                    'Accept-Language': 'en-US,en;q=0.9',
-                    'Sec-Fetch-Dest': 'empty',
-                    'Sec-Fetch-Mode': 'cors',
-                    'Sec-Fetch-Site': 'same-origin',
-                },
-                'extractor_retries': 2,
-                'fragment_retries': 2,
-                'cachedir': False,
+                'format': 'best[height<=720]',  # Try lower quality first
+                'no_check_certificate': True,
                 'extractor_args': {
                     'youtube': {
                         'player_client': ['web'],
-                        'player_skip': ['configs', 'webpage'],
-                        'skip': ['hls'],
+                        'player_skip': ['configs', 'webpage', 'js'],
                     }
                 }
+            }
+        },
+        {
+            'name': 'Generic Extractor',
+            'opts': {
+                'quiet': True,
+                'no_warnings': True,
+                'user_agent': 'Mozilla/5.0 (X11; Linux x86_64) AppleWebKit/537.36',
+                'extractor_retries': 1,
+                'fragment_retries': 1,
+                'cachedir': False,
+                'format': 'best[height<=480]',  # Even lower quality
+                'force_generic_extractor': True,
+                'no_check_certificate': True,
+            }
+        },
+        {
+            'name': 'Direct Format',
+            'opts': {
+                'quiet': True,
+                'no_warnings': True,
+                'user_agent': 'yt-dlp/2025.08.28',
+                'extractor_retries': 1,
+                'fragment_retries': 1,
+                'cachedir': False,
+                'format': '18',  # Try specific format (360p mp4)
+                'no_check_certificate': True,
             }
         }
     ]
@@ -145,44 +114,78 @@ def download_best(url):
     
     # Try each strategy until one works
     for strategy in strategies:
-        print(f"[*] Trying {strategy['name']} client...")
+        print(f"[*] Trying {strategy['name']}...")
         try:
             with yt_dlp.YoutubeDL(strategy['opts']) as ydl:
                 info_dict = ydl.extract_info(url, download=False)
                 successful_strategy = strategy
-                print(f"[✓] Success with {strategy['name']} client!")
+                print(f"[✓] Success with {strategy['name']}!")
                 break
         except Exception as e:
-            print(f"[!] {strategy['name']} failed: {str(e)[:100]}...")
+            print(f"[!] {strategy['name']} failed")
             continue
     
     if not info_dict:
         print("[x] All extraction strategies failed!")
-        return None, None
+        # Try one last desperate attempt with absolute minimal config
+        print("[*] Trying last resort method...")
+        try:
+            minimal_opts = {
+                'quiet': True,
+                'format': 'worst',
+                'no_warnings': True,
+                'cachedir': False,
+                'no_check_certificate': True,
+                'user_agent': 'curl/7.68.0',
+            }
+            with yt_dlp.YoutubeDL(minimal_opts) as ydl:
+                info_dict = ydl.extract_info(url, download=False)
+                successful_strategy = {'name': 'Minimal', 'opts': minimal_opts}
+                print("[✓] Success with minimal config!")
+        except Exception as e:
+            return None, None
 
+    # For cloud deployment, use simple format selection
     formats = info_dict.get('formats', [])
-    v = select_best_video(formats)
-    a = select_best_audio(formats)
-
-    if not v or not a:
-        print("[x] ERROR: No suitable video/audio found.")
-        return None, None
-
-    print(f"    Selected video: {v.get('height')}p | {v.get('vcodec')} | {v.get('tbr')} kbps")
-    print(f"    Selected audio: {a.get('acodec')} | {a.get('abr')} kbps")
+    
+    # Try to find a combined format first (easier for cloud)
+    combined_formats = [f for f in formats if f.get('vcodec') not in (None, 'none') and f.get('acodec') not in (None, 'none')]
+    if combined_formats:
+        selected_format = max(combined_formats, key=lambda f: (f.get('height', 0), f.get('tbr') or 0))
+        format_selector = selected_format['format_id']
+        print(f"    Selected combined format: {selected_format.get('height')}p | {selected_format.get('vcodec')} + {selected_format.get('acodec')}")
+    else:
+        # Fallback to separate video+audio
+        v = select_best_video(formats)
+        a = select_best_audio(formats)
+        
+        if not v or not a:
+            # Last resort: use any available format
+            available_formats = [f for f in formats if f.get('url')]
+            if available_formats:
+                best_available = max(available_formats, key=lambda f: f.get('quality', 0))
+                format_selector = best_available['format_id']
+                print(f"    Using available format: {best_available.get('format_id')}")
+            else:
+                print("[x] ERROR: No suitable formats found.")
+                return None, None
+        else:
+            format_selector = f"{v['format_id']}+{a['format_id']}"
+            print(f"    Selected video: {v.get('height')}p | {v.get('vcodec')} | {v.get('tbr')} kbps")
+            print(f"    Selected audio: {a.get('acodec')} | {a.get('abr')} kbps")
 
     timestamp = datetime.now().strftime("%Y-%m-%d_%H-%M-%S")
     final_file = f"{timestamp}.mp4"
     final_path = os.path.join(DOWNLOAD_DIR, final_file)
 
-    # Use the successful strategy for download
+    # Use the successful strategy for download with minimal modifications
     download_opts = successful_strategy['opts'].copy()
     download_opts.update({
-        'format': f"{v['format_id']}+{a['format_id']}",
+        'format': format_selector,
         'merge_output_format': 'mp4',
         'outtmpl': final_path,
         'progress_hooks': [ydl_progress],
-        'quiet': False,  # Show yt-dlp's built-in progress
+        'quiet': False,
         'no_warnings': False,
     })
 

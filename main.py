@@ -196,7 +196,7 @@ def download_route(yt_url):
         if not filename:
             return jsonify({"error": "No suitable video/audio found"}), 400
 
-        download_link = request.host_url + "files/" + filename
+        download_link = "https://ytd.stylefort.store/files/" + filename
 
         data = {
             "title": info.get("title"),

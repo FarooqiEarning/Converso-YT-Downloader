@@ -10,84 +10,37 @@ app = Flask(__name__)
 DOWNLOAD_DIR = "downloads"
 os.makedirs(DOWNLOAD_DIR, exist_ok=True)
 
-# ---------- COOKIES ----------
-# Path for browser-exported cookies
-COOKIES_FILE = os.path.join(os.path.dirname(__file__), "cookies.txt")
-USE_COOKIES = os.path.exists(COOKIES_FILE)
-
-
 # ---------- PROGRESS HOOKS ----------
 def ydl_progress(d):
     if d['status'] == 'downloading':
-        print(f"[*] Downloading...")
+        print("[*] Downloading...")
     elif d['status'] == 'finished':
         print("[✓] Download completed.")
 
-
 # ---------- YOUTUBE ID EXTRACTION ----------
 def extract_youtube_id(url):
-    """Extract YouTube video ID from various URL formats including Shorts"""
     patterns = [
-        r'(?:youtube\.com\/watch\?v=|youtu\.be\/|youtube\.com\/embed\/)([a-zA-Z0-9_-]{11})',
-        r'youtube\.com\/.*[?&]v=([a-zA-Z0-9_-]{11})',
-        r'youtube\.com\/shorts\/([a-zA-Z0-9_-]{11})',  # YouTube Shorts
-        r'youtube\.com\/live\/([a-zA-Z0-9_-]{11})',    # YouTube Live
+        r'(?:youtube\.com/watch\?v=|youtu\.be/|youtube\.com/embed/)([A-Za-z0-9_-]{11})',
+        r'youtube\.com/.*[?&]v=([A-Za-z0-9_-]{11})',
+        r'youtube\.com/shorts/([A-Za-z0-9_-]{11})',
+        r'youtube\.com/live/([A-Za-z0-9_-]{11})',
     ]
-    
     for pattern in patterns:
         match = re.search(pattern, url)
         if match:
             return match.group(1)
-    
     return None
-
-
-# ---------- ALTERNATIVE METHOD: USE YOUTUBE API ----------
-def get_video_info_api(video_id):
-    """Try to get video info using YouTube's internal API"""
-    try:
-        api_url = f"https://www.youtube.com/youtubei/v1/player"
-        
-        headers = {
-            'User-Agent': 'Mozilla/5.0 (Windows NT 10.0; Win64; x64) AppleWebKit/537.36 (KHTML, like Gecko) Chrome/120.0.0.0 Safari/537.36',
-            'Content-Type': 'application/json',
-            'Origin': 'https://www.youtube.com',
-            'Referer': f'https://www.youtube.com/watch?v={video_id}',
-        }
-        
-        data = {
-            "context": {
-                "client": {
-                    "clientName": "WEB",
-                    "clientVersion": "2.20231128.07.00",
-                    "platform": "DESKTOP"
-                }
-            },
-            "videoId": video_id
-        }
-        
-        response = requests.post(api_url, headers=headers, json=data, timeout=30)
-        if response.status_code == 200:
-            return response.json()
-    except Exception as e:
-        print(f"[!] API method failed: {str(e)}")
-    
-    return None
-
 
 # ---------- FORMAT SELECTION ----------
 def select_best_video(formats):
     vids = [f for f in formats if f.get('vcodec') not in (None, 'none') and f.get('acodec') == 'none']
     if not vids:
         vids = [f for f in formats if f.get('vcodec') not in (None, 'none')]
-    
-    codec_order = ['av01', 'vp9', 'avc1']
-    for codec in codec_order:
+    for codec in ('av01', 'vp9', 'avc1'):
         cand = [f for f in vids if f.get('vcodec', '').lower().startswith(codec)]
         if cand:
             return max(cand, key=lambda f: (f.get('height', 0), f.get('tbr') or 0))
     return max(vids, key=lambda f: (f.get('height', 0), f.get('tbr') or 0), default=None)
-
 
 def select_best_audio(formats):
     auds = [f for f in formats if f.get('acodec') not in (None, 'none') and f.get('abr') is not None]
@@ -97,12 +50,9 @@ def select_best_audio(formats):
         return None
     return max(auds, key=lambda f: f.get('abr', 0))
 
-
 # ---------- DOWNLOAD WITH AGGRESSIVE BYPASS ----------
 def download_best(url):
     print(f"\n[+] Starting download: {url}")
-    
-    print("[*] Trying yt-dlp with bypass options...")
     minimal_opts = {
         'quiet': True,
         'no_warnings': True,
@@ -112,14 +62,6 @@ def download_best(url):
         'cachedir': False,
         'no_check_certificate': True,
         'prefer_insecure': True,
-        'user_agent': 'Mozilla/5.0 (compatible; Googlebot/2.1; +http://www.google.com/bot.html)',
-        'headers': {
-            'Accept': '*/*',
-            'Accept-Encoding': 'gzip, deflate',
-        },
-        'http_headers': {
-            'User-Agent': 'Mozilla/5.0 (compatible; Googlebot/2.1; +http://www.google.com/bot.html)',
-        },
         'extractor_args': {
             'youtube': {
                 'skip': ['hls', 'dash', 'webpage'],
@@ -129,178 +71,98 @@ def download_best(url):
         }
     }
 
-    # 👇 Add cookies if available
-    if USE_COOKIES:
-        minimal_opts['cookiefile'] = COOKIES_FILE
-        print(f"[*] Using cookies from {COOKIES_FILE}")
-    
     try:
         with yt_dlp.YoutubeDL(minimal_opts) as ydl:
-            info_dict = ydl.extract_info(url, download=False)
-            print("[✓] yt-dlp bypass successful!")
-            
-            formats = info_dict.get('formats', [])
-            combined_formats = [f for f in formats if 
-                              f.get('vcodec') not in (None, 'none') and 
-                              f.get('acodec') not in (None, 'none')]
-            
-            if combined_formats:
-                best_format = max(combined_formats, key=lambda f: (f.get('height', 0), f.get('tbr') or 0))
-                format_selector = best_format['format_id']
-                print(f"    Using combined format: {best_format.get('height')}p | {best_format.get('vcodec')} + {best_format.get('acodec')}")
+            info = ydl.extract_info(url, download=False)
+            print("[✓] yt-dlp extract successful.")
+            formats = info.get('formats', [])
+
+            combined = [f for f in formats if f.get('vcodec') not in (None, 'none') and f.get('acodec') not in (None, 'none')]
+            if combined:
+                best = max(combined, key=lambda f: (f.get('height', 0), f.get('tbr') or 0))
+                fmt = best['format_id']
+                print(f"Using combined format: {best.get('height')}p")
             else:
                 v = select_best_video(formats)
                 a = select_best_audio(formats)
-                
                 if not v:
-                    best_available = max(formats, key=lambda f: f.get('quality', 0)) if formats else None
-                    if best_available:
-                        format_selector = best_available['format_id']
-                        print(f"    Using available format: {best_available.get('format_id')}")
-                    else:
-                        print("[x] No formats available")
+                    fallback = max(formats, key=lambda f: f.get('quality', 0)) if formats else None
+                    if not fallback:
+                        print("[x] No formats available.")
                         return None, None
+                    fmt = fallback['format_id']
                 elif not a:
-                    format_selector = v['format_id']
-                    print(f"    Using video-only format: {v.get('height')}p | {v.get('vcodec')}")
+                    fmt = v['format_id']
                 else:
-                    format_selector = f"{v['format_id']}+{a['format_id']}"
-                    print(f"    Selected video: {v.get('height')}p | {v.get('vcodec')}")
-                    print(f"    Selected audio: {a.get('acodec')} | {a.get('abr')} kbps")
+                    fmt = f"{v['format_id']}+{a['format_id']}"
 
             timestamp = datetime.now().strftime("%Y-%m-%d_%H-%M-%S")
-            final_file = f"{timestamp}.mp4"
-            final_path = os.path.join(DOWNLOAD_DIR, final_file)
+            filename = f"{timestamp}.mp4"
+            path = os.path.join(DOWNLOAD_DIR, filename)
 
-            download_opts = minimal_opts.copy()
-            download_opts.update({
-                'format': format_selector,
+            opts = minimal_opts.copy()
+            opts.update({
+                'format': fmt,
                 'merge_output_format': 'mp4',
-                'outtmpl': final_path,
+                'outtmpl': path,
                 'progress_hooks': [ydl_progress],
                 'quiet': False,
-                'no_warnings': False,
+                'no_warnings': False
             })
 
-            with yt_dlp.YoutubeDL(download_opts) as ydl:
+            with yt_dlp.YoutubeDL(opts) as ydl:
                 ydl.download([url])
+            print(f"[✓] Download complete: {filename}\n")
+            return filename, info
 
-            print(f"[✓] Done! File saved as: {final_file}\n")
-            return final_file, info_dict
-            
     except Exception as e:
-        print(f"[!] yt-dlp failed: {str(e)[:100]}...")
+        print(f"[x] yt-dlp failed: {e}")
+        return None, None
 
-    print("[x] All methods failed!")
-    print("[!] YouTube has blocked this server's IP address.")
-    print("[!] Possible solutions:")
-    print("    1. Use a VPN or proxy service")
-    print("    2. Deploy on a different cloud provider") 
-    print("    3. Add cookies from your browser")
-    print("    4. Use a residential proxy service")
-    
-    return None, None
-
-
-# ---------- ROUTES ----------
+# ---------- Flask Routes ----------
 @app.route('/favicon.ico')
 def favicon():
     return "", 204
 
-
 @app.route('/files/<path:filename>')
 def serve_file(filename):
     return send_from_directory(DOWNLOAD_DIR, filename, as_attachment=True)
-
 
 @app.route('/')
 def index():
     return jsonify({
         "service": "YouTube Downloader API",
         "status": "running",
-        "usage": "Add YouTube URL after domain",
-        "examples": [
-            "https://ytd.stylefort.store/https://www.youtube.com/watch?v=dQw4w9WgXcQ",
-            "https://ytd.stylefort.store/https://youtu.be/dQw4w9WgXcQ",
-            "https://ytd.stylefort.store/https://www.youtube.com/shorts/VIDEO_ID"
-        ]
+        "usage": "Add YouTube URL after domain"
     })
-
 
 @app.route('/<path:yt_url>', methods=['GET'])
 def download_route(yt_url):
     yt_url = unquote(yt_url)
-    
     if request.query_string:
         yt_url += '?' + request.query_string.decode('utf-8')
-    
+
     if not any(domain in yt_url.lower() for domain in ['youtube.com', 'youtu.be']):
-        return jsonify({
-            "error": "Invalid request",
-            "usage": "Paste your YouTube video URL after the server address",
-            "examples": [
-                "https://ytd.stylefort.store/https://www.youtube.com/watch?v=dQw4w9WgXcQ",
-                "https://ytd.stylefort.store/https://youtu.be/dQw4w9WgXcQ",
-                "https://ytd.stylefort.store/https://www.youtube.com/shorts/VIDEO_ID",
-                "https://ytd.stylefort.store/https://www.youtube.com/live/VIDEO_ID"
-            ]
-        }), 400
-    
-    video_id = extract_youtube_id(yt_url)
-    if not video_id:
-        return jsonify({
-            "error": "Could not extract YouTube video ID from URL",
-            "url_received": yt_url
-        }), 400
-    
-    clean_url = f"https://www.youtube.com/watch?v={video_id}"
-    
-    try:
-        filename, info = download_best(clean_url)
-        if not filename:
-            return jsonify({
-                "error": "Download failed",
-                "reason": "YouTube blocked this server's IP address",
-                "solutions": [
-                    "Try using a VPN or proxy",
-                    "Export cookies from your browser and add to server",
-                    "Use a different cloud provider",
-                    "Try again later"
-                ]
-            }), 400
+        return jsonify({"error": "Invalid YouTube URL"}), 400
 
-        download_link = "https://ytd.stylefort.store/files/" + filename
+    vid = extract_youtube_id(yt_url)
+    if not vid:
+        return jsonify({"error": "Could not extract video ID"}), 400
 
-        data = {
-            "title": info.get("title"),
-            "uploader": info.get("uploader"),
-            "channel": info.get("channel"),
-            "duration": info.get("duration"),
-            "view_count": info.get("view_count"),
-            "like_count": info.get("like_count"),
-            "thumbnail": info.get("thumbnail"),
-            "webpage_url": info.get("webpage_url"),
-            "filesize_approx": info.get("filesize_approx"),
-            "download_url": download_link,
-            "video_id": video_id,
-            "status": "success"
-        }
+    clean = f"https://www.youtube.com/watch?v={vid}"
 
-        return jsonify(data)
-    
-    except Exception as e:
-        print(f"[x] Error during download: {str(e)}")
-        return jsonify({
-            "error": "Download failed",
-            "details": str(e),
-            "solutions": [
-                "YouTube has blocked this IP address",
-                "Try using cookies or VPN",
-                "Consider alternative video sources"
-            ]
-        }), 500
+    filename, info = download_best(clean)
+    if not filename:
+        return jsonify({"error": "Download failed"}), 500
 
+    return jsonify({
+        "title": info.get("title"),
+        "download_url": f"/files/{filename}",
+        "video_id": vid,
+        "status": "success"
+    })
 
 if __name__ == "__main__":
+    import os
     port = int(os.environ.get("PORT", 5000))
     app.run(host="0.0.0.0", port=port, debug=False)
